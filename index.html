@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Gesture Recognition</title>
+
+    <link rel="stylesheet" type="text/css" href="style.css">
+    <link href="https://unpkg.com/material-components-web@latest/dist/material-components-web.min.css" rel="stylesheet">
+    <script src="https://unpkg.com/material-components-web@latest/dist/material-components-web.min.js"></script>
+    <script src="libraries/p5.min.js"></script>
+    <script src="libraries/p5.sound.min.js"></script>
+  </head>
+
+  <body>
+
+      <header>
+        <h1> Gesture Recognition</h1>
+      </header>
+      
+
+
+     <main>
+
+      <canvas id="gestureCanvas"></canvas>
+  <div id="video-container">
+    <video id="webcam" autoplay playsinline></video>
+    <canvas id="output_canvas"></canvas>
+  </div>
+      <script type="module" src="sketch.js"></script>
+      <div id="liveView" class="videoView">
+        <button id="webcamButton" class="mdc-button mdc-button--raised">
+          <span class="mdc-button__ripple"></span>
+          <span class="mdc-button__label">ENABLE WEBCAM</span>
+        </button>
+        <div style="position: relative;">
+          <video id="webcam" autoplay playsinline></video>
+          <canvas class="output_canvas" id="output_canvas" width="1280" height="720" style="position: absolute; left: 0px; top: 0px;"></canvas>
+          <p id='gesture_output' class="output">
+        </div>
+      </div>
+     </main>
+    
+    
+
+   
+
+
+
+
+  </body>
+</html>
