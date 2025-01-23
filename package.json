@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "main": "sketch.js",
   "scripts": {
-  "start": "vite"
+  "start": "vite",
+  "dev": "vite",
+  "build": "vite build"
 }
 ,
   "keywords": [],

@@ -1,5 +1,22 @@
-//Variable 
-let ellipseColor = "gray";
+let ellipseColor = " #1ED760";
+let lastGesture = null;
+let isProcessingAction = false; 
+let lastVideoTime = -1; 
+let results = undefined; 
+let lastSkipTime = 0; // Timestamp of the last skip action
+const skipCooldown = 4000;
+let lastVolumeChangeTime = 0; // Timestamp of the last volume change
+const volumeCooldown = 3000; // Cooldown period in milliseconds (5 seconds)
+ // Cooldown period in milliseconds (2 seconds)
+
+// Store last detections to reduce flickering
+let detections = [];
+
+
+// Placeholder for gesture recognition results
+// Initialize the variable
+// Add a flag to track if an action is being processed
+const actionDelay = 1000; // 1-second delay
 //placeholder name to keep count of the ellipse pulses
 let pulsingInterval;
 
@@ -8,26 +25,106 @@ let pulsingInterval;
 const canvas = document.getElementById("gestureCanvas");
 const canvasContext = canvas.getContext("2d");
 
-// Function to adjust canvas resolution for sharp rendering
-function adjustCanvasResolution() {
-  //Device Pixel Ratio (dpr): Ensures the canvas renders crisply on high-resolution screens.
-  const dpr = window.devicePixelRatio || 1; // Get device pixel ratio
+const faceCanvas = document.getElementById("face_canvas");
+const faceCtx = faceCanvas.getContext("2d");
 
-  // Use CSS dimensions to set the internal resolution
-  const canvasWidth = 480; // Match your desired width
-  const canvasHeight = 360; // Match your desired height
 
-  // Set the canvas element's width and height attributes (internal resolution)
-  canvas.width = canvasWidth * dpr;
-  canvas.height = canvasHeight * dpr;
-
-  // Scale the context to match the device pixel ratio
-  canvasContext.scale(dpr, dpr);
-
-  // Apply the CSS width and height for rendered size
-  canvas.style.width = `${canvasWidth}px`;
-  canvas.style.height = `${canvasHeight}px`;
+async function loadFaceAPIModels() {
+  try {
+    console.log("Loading Face-API.js models...");
+    await Promise.all([
+      faceapi.nets.tinyFaceDetector.loadFromUri("/models"),
+      faceapi.nets.faceLandmark68Net.loadFromUri("/models"),
+      faceapi.nets.faceRecognitionNet.loadFromUri("/models"),
+      faceapi.nets.faceExpressionNet.loadFromUri("/models"),
+    ]);
+    console.log("Face-API.js models loaded!");
+  } catch (error) {
+    console.error("Error loading Face-API.js models:", error);
+  }
 }
+
+setInterval(async () => {
+  if (video.readyState === 4) {
+    const options = new faceapi.TinyFaceDetectorOptions();
+    const displaySize = { width: video.videoWidth, height: video.videoHeight };
+
+    // Detect faces and scale results to canvas size
+    const detectedResults = await faceapi
+      .detectAllFaces(video, options)
+      .withFaceLandmarks()
+      .withFaceExpressions();
+
+    detections = faceapi.resizeResults(detectedResults, displaySize);
+  }
+}, 100);
+
+
+
+// Function to draw face detection results
+function drawFaceDetections() {
+  // Match faceCanvas size with video size
+  faceCanvas.width = video.videoWidth;
+  faceCanvas.height = video.videoHeight;
+
+  // Clear the faceCanvas before drawing
+  faceCtx.clearRect(0, 0, faceCanvas.width, faceCanvas.height);
+
+  if (detections.length > 0) {
+    detections.forEach((detection) => {
+      const { x, y, width, height } = detection.detection.box;
+
+      // Draw bounding box
+      faceCtx.strokeStyle = "#1ED760";
+      faceCtx.lineWidth = 2;
+      faceCtx.strokeRect(x, y, width, height);
+
+      // Draw landmarks
+      const landmarks = detection.landmarks.positions;
+      faceCtx.fillStyle = "rgb(255, 0, 0)";
+      landmarks.forEach((point) => {
+        faceCtx.beginPath();
+        faceCtx.arc(point.x, point.y, 3, 0, 2 * Math.PI);
+        faceCtx.fill();
+      });
+
+      // Display the dominant emotion
+      const expressions = detection.expressions;
+      const sorted = Object.entries(expressions).sort((a, b) => b[1] - a[1]);
+      const dominantEmotion = sorted[0][0] || "unknown";
+      if (["neutral", "happy", "sad", "surprised"].includes(dominantEmotion)) {
+        currentMood = dominantEmotion; // Update current mood
+        console.log(`Detected mood: ${currentMood}`);
+      }
+      
+
+      faceCtx.fillStyle = "white";
+      faceCtx.font = "20px Helvetica Neue";
+      faceCtx.fillText(`Emotion: ${dominantEmotion}`, x, y - 10);
+    });
+  }
+  requestAnimationFrame(drawFaceDetections);
+}
+
+// Load models, start face detection, and drawing
+loadFaceAPIModels().then(() => {
+  drawFaceDetections();
+});
+
+
+// Function to ensure gestureCanvas is visible and properly sized
+function adjustCanvasResolution() {
+  const container = document.getElementById("gesture_canvas_wrapper");
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = container.offsetWidth * dpr;
+  canvas.height = container.offsetHeight * dpr;
+  canvasContext.scale(dpr, dpr);
+}
+
+// Call this function when enabling the webcam
+// window.addEventListener("resize", adjustCanvasResolution);
+// adjustCanvasResolution()
+
 
 
 // Function to draw an ellipse with adjustable size
@@ -68,7 +165,7 @@ function triggerPulsingEffect() {
 
       // Draw the expanding ring
       canvasContext.beginPath();
-      canvasContext.strokeStyle = `rgba(0, 255, 0, ${1 - ringRadius / 100})`; // Fading effect
+      canvasContext.strokeStyle = `rgba(30, 215, 96, ${1 - ringRadius / 100})`; // Fading effect
       canvasContext.lineWidth = 2 * window.devicePixelRatio;
       canvasContext.arc(
         canvas.width / (2 * window.devicePixelRatio),
@@ -118,9 +215,11 @@ console.log("MediaPipe Gesture Recognizer initialized");
 
 const demosSection = document.getElementById("demos");
 let gestureRecognizer;
+let customGestureRecognizer; 
 let runningMode = "IMAGE";
 let enableWebcamButton;
 let webcamRunning = false;
+// let lastVideoTime = -1;
 
 const videoHeight = "360px";
 const videoWidth = "480px";
@@ -128,21 +227,41 @@ const videoWidth = "480px";
 // Before we can use HandLandmarker class we must wait for it to finish
 // loading. Machine Learning models can be large and take a moment to
 // get everything needed to run.
-const createGestureRecognizer = async () => {
+
+
+const createGestureRecognizers = async () => {
   const vision = await FilesetResolver.forVisionTasks(
     "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm"
   );
+
+  // Load the default gesture model
   gestureRecognizer = await GestureRecognizer.createFromOptions(vision, {
     baseOptions: {
       modelAssetPath:
         "https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task",
       delegate: "GPU",
     },
-    runningMode: runningMode,
+    runningMode: 'VIDEO', // Ensure the runningMode is set to 'VIDEO'
   });
+
+  // Load the custom model
+  const customModelPath = "/models/gesture_recognizer_model (1).tflite"; // Path to your custom model
+  customGestureRecognizer = await GestureRecognizer.createFromOptions(vision, {
+    baseOptions: {
+      modelAssetPath: customModelPath,
+      delegate: "GPU",
+    },
+    runningMode: 'VIDEO', // Ensure the runningMode is set to 'VIDEO'
+  });
+
+  console.log("Both models loaded successfully!");
 };
-createGestureRecognizer();
+
+createGestureRecognizers();
 drawEllipse();
+loadFaceAPIModels(); // Load Face-API models
+
+
 
 /********************************************************************
 // Demo 1: Detect hand gestures in images
@@ -234,9 +353,14 @@ async function handleClick(event) {
 ********************************************************************/
 
 const video = document.getElementById("webcam");
-const canvasElement = document.getElementById("output_canvas");
+const canvasElement = document.getElementById("gesture_canvas", "face_canvas");
 const canvasCtx = canvasElement.getContext("2d");
 const gestureOutput = document.getElementById("gesture_output");
+const faceOutput = document.getElementById("face_output");
+
+
+
+
 
 // Check if webcam access is supported.
 function hasGetUserMedia() {
@@ -252,7 +376,8 @@ if (hasGetUserMedia()) {
   console.warn("getUserMedia() is not supported by your browser");
 }
 
-// Enable the live webcam view and start detection.
+
+
 function enableCam(event) {
   if (!gestureRecognizer) {
     alert("Please wait for gestureRecognizer to load");
@@ -261,116 +386,229 @@ function enableCam(event) {
 
   if (webcamRunning === true) {
     webcamRunning = false;
-    enableWebcamButton.innerText = "ENABLE PREDICTIONS";
+    enableWebcamButton.innerText = "Enable Predictions";
   } else {
     webcamRunning = true;
-    enableWebcamButton.innerText = "DISABLE PREDICTIONS";
+    enableWebcamButton.innerText = "Disable Predictions";
   }
 
-  // getUsermedia parameters.
-  const constraints = {
-    video: true,
-  };
+  const constraints = { video: true };
 
-  // Activate the webcam stream.
   navigator.mediaDevices.getUserMedia(constraints).then(function (stream) {
     video.srcObject = stream;
-    video.addEventListener("loadeddata", predictWebcam);
+
+    video.addEventListener("loadeddata", () => {
+      // Adjust resolution only for face and gesture detection canvases, not gestureCanvas
+      adjustCanvasResolution(faceCanvas, faceCtx, video.videoWidth, video.videoHeight);
+      adjustCanvasResolution(canvasElement, canvasCtx, video.videoWidth, video.videoHeight);
+      
+      predictWebcam();
+    });
   });
 }
 
-let lastVideoTime = -1;
-let results = undefined;
+
+
+
+
+
+let lastFrameTime = 0; // Variable to track the time of the last frame
+let isProcessingFrame = false; // Flag to prevent multiple frames from being processed at once
 
 async function predictWebcam() {
   const webcamElement = document.getElementById("webcam");
-  // Now let's start detecting the stream.
+
+  // Ensure that both gesture recognizers are set to 'VIDEO' mode
   if (runningMode === "IMAGE") {
     runningMode = "VIDEO";
     await gestureRecognizer.setOptions({ runningMode: "VIDEO" });
-  }
-  let nowInMs = Date.now();
-  if (video.currentTime !== lastVideoTime) {
-    lastVideoTime = video.currentTime;
-    results = gestureRecognizer.recognizeForVideo(video, nowInMs);
+    await customGestureRecognizer.setOptions({ runningMode: "VIDEO" });
   }
 
+  // Skip processing if a frame is already being processed
+  if (isProcessingFrame) return;
+
+  isProcessingFrame = true; // Set flag to indicate frame processing
+
+  const nowInMs = Date.now();
+  const timeDiff = nowInMs - lastFrameTime;
+
+  // Limit frame processing rate to avoid excessive API calls (every 100ms)
+  if (timeDiff < 100) {
+    setTimeout(() => {
+      window.requestAnimationFrame(predictWebcam);
+    }, 100 - timeDiff);
+    isProcessingFrame = false;
+    return;
+  }
+
+  lastFrameTime = nowInMs; // Update timestamp of last processed frame
+
+  // Perform gesture recognition if video time has changed
+  if (video.currentTime !== lastVideoTime) {
+    lastVideoTime = video.currentTime;
+    results = gestureRecognizer.recognizeForVideo(video, nowInMs); // Recognize gestures with default model
+  }
+
+  // Clear and prepare canvas for drawing
   canvasCtx.save();
   canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
   const drawingUtils = new DrawingUtils(canvasCtx);
 
-  canvasElement.style.height = videoHeight;
-  webcamElement.style.height = videoHeight;
-  canvasElement.style.width = videoWidth;
-  webcamElement.style.width = videoWidth;
+  
 
-  // Draw landmarks if they exist
+  // Draw landmarks if they are detected
   if (results.landmarks) {
     for (const landmarks of results.landmarks) {
       drawingUtils.drawConnectors(
         landmarks,
         GestureRecognizer.HAND_CONNECTIONS,
-        {
-          color: "#00FF00",
-          lineWidth: 5,
-        }
+        { color: "#00FF00", lineWidth: 2 }
       );
-      drawingUtils.drawLandmarks(landmarks, {
-        color: "#FF0000",
-        lineWidth: 2,
-      });
+      drawingUtils.drawLandmarks(landmarks, { color: "#FF0000", radius: 3 });
     }
   }
-  canvasCtx.restore();
 
-  // Check if gestures and handedness data are available
+  canvasCtx.restore(); // Restore canvas state
+
+
+  
+  // **Default model gesture processing**
   if (results.gestures && results.gestures.length > 0) {
-    const categoryName = results.gestures[0][0]?.categoryName || "Unknown";
-    const categoryScore = parseFloat(
-      results.gestures[0][0]?.score * 100 || 0
-    ).toFixed(2);
-
-    if (categoryName === "Open_Palm") {
-      triggerPulsingEffect(); // Start the pulsing effect
-    } else if (categoryName === "Closed_Fist") {
-      stopPulsingEffect(); // Stop the pulsing effect
-      drawEllipseWithSize("green", 30); // Smaller ellipse
-    } else {
-      stopPulsingEffect(); // Stop the pulsing effect
-      ellipseColor = "gray";
-      drawEllipse();
+    const defaultCategoryName = results.gestures[0][0]?.categoryName || "Unknown";
+    const defaultCategoryScore = parseFloat(results.gestures[0][0]?.score * 100 || 0).toFixed(2);
+  
+    // // Update gesture output display with detected gesture
+    // gestureOutput.style.display = "block";
+    // gestureOutput.style.width = videoWidth;
+    
+    function updateGestureOutputText(text) {
+      const gestureOutputText = document.getElementById("gesture_output_text");
+      gestureOutputText.innerText = text;
     }
-
-    // Update gesture output
-    gestureOutput.style.display = "block";
-    gestureOutput.style.width = videoWidth;
-    gestureOutput.innerText = `Gesture: ${categoryName}\nConfidence: ${categoryScore}%`;
-
-    // Check for handedness and display it if available
+    
+    document.getElementById("gesture_text").innerText = `Default Gesture: ${defaultCategoryName}\nConfidence: ${defaultCategoryScore}%`;
+  
     if (results.handednesses && results.handednesses[0]) {
       const handedness = results.handednesses[0][0]?.displayName || "Unknown";
-      gestureOutput.innerText += `\nHandedness: ${handedness}`;
+      document.getElementById("gesture_text").innerText += `\nHandedness: ${handedness}`;
+    }
+
+    // Trigger actions for specific default gestures
+    if (defaultCategoryName === "Open_Palm" && !isProcessingAction) {
+      triggerPulsingEffect();
+      console.log("Playing playlist...");
+      await playPlaylist();
+      isProcessingAction = true;
+    } else if (defaultCategoryName === "Closed_Fist" && !isProcessingAction) {
+      stopPulsingEffect();
+      drawEllipseWithSize("#1ED760", 30); // Draw paused indicator
+      console.log("Pausing playlist...");
+      await pausePlaylist();
+      isProcessingAction = true;
+    } else if (defaultCategoryName === "Pointing_Up" && !isProcessingAction) {
+      const now = Date.now();
+      // Check if cooldown has passed for volume change
+      if (now - lastVolumeChangeTime > volumeCooldown) {
+        if (currentVolume < 100) {
+          currentVolume = Math.min(currentVolume + 20, 100); // Increase volume, ensure it doesn't exceed 100%
+          await setVolume(currentVolume); // Call the function to update Spotify volume
+          console.log("Increasing volume to:", currentVolume);
+          lastVolumeChangeTime = now;
+        } else {
+          console.log("Volume is already at the maximum.");
+        }
+      } else {
+        console.log("Volume change on cooldown. Please wait...");
+      }
+
     }
   } else {
-    // No gestures detected: reset ellipse
+
+    // gestureOutput.style.display = "block"; // Keep gestureOutput visible
+    gestureOutput.style.width = videoWidth;
+    document.getElementById("gesture_text").innerText = "No gesture detected";
+    // No gestures detected: reset UI
     stopPulsingEffect();
-    ellipseColor = "gray";
+    ellipseColor = "#1ED760";
     drawEllipse();
-    gestureOutput.style.display = "none";
+    // gestureOutput.style.display = "none";
+    lastGesture = null;
   }
 
-  // Continue detecting
+  // **Custom model gesture processing**
+  const customResults = customGestureRecognizer.recognizeForVideo(video, nowInMs);
+  if (customResults.gestures && customResults.gestures.length > 0) {
+    const customCategoryName = customResults.gestures[0][0]?.categoryName || "Unknown";
+    const customCategoryScore = parseFloat(customResults.gestures[0][0]?.score * 100 || 0).toFixed(2);
+
+    // Append custom model output to the gestureOutput
+    document.getElementById("gesture_text").innerText += `\nCustom Gesture: ${customCategoryName}\nConfidence: ${customCategoryScore}%`;
+
+    // Trigger actions for specific custom gestures
+    if (customCategoryName.toLowerCase() === "palm_right" && !isProcessingAction) {
+      const now = Date.now();
+      if (now - lastSkipTime > skipCooldown) {
+        console.log("Detected palm_right gesture. Skipping to next track...");
+        await skipToNextTrack();
+        lastSkipTime = now;
+        isProcessingAction = true;
+      } else {
+        console.log("Skip action on cooldown. Please wait...");
+      }
+    } else if (customCategoryName.toLowerCase() === "pointing_down" && !isProcessingAction) {
+        const now = Date.now();
+        // Check if cooldown has passed for volume change
+        if (now - lastVolumeChangeTime > volumeCooldown) {
+          if (currentVolume > 0) {
+            currentVolume = Math.max(currentVolume - 20, 0); // Decrease volume, ensure it doesn't go below 0%
+            await setVolume(currentVolume);
+            console.log("Decreasing volume to:", currentVolume);
+            lastVolumeChangeTime = now;
+          } else {
+            console.log("Volume is already at the minimum.");
+          }
+        } else {
+          console.log("Volume change on cooldown. Please wait...");
+        }
+    }
+  }
+
+
+ 
+  // Reset the action flag after a delay to allow the next action
+  setTimeout(() => {
+    isProcessingAction = false;
+  }, actionDelay);
+
+  isProcessingFrame = false; // Reset frame processing flag
   if (webcamRunning) {
-    window.requestAnimationFrame(predictWebcam);
+    window.requestAnimationFrame(predictWebcam); // Continue prediction loop
   }
 }
 
 
-  
+window.addEventListener("resize", () => {
+  adjustCanvasResolution(faceCanvas, faceCtx);
+  adjustCanvasResolution(canvasElement, canvasCtx);
+});
+
+function positionGestureOutput() {
+  const videoContainer = document.getElementById('video-container');
+  const gestureOutput = document.getElementById('gesture_output');
+
+  // Get the position and width of video-container
+  const videoRect = videoContainer.getBoundingClientRect();
+
+  // Set the left position of gesture_output 6px to the right of video-container
+  gestureOutput.style.left = `${videoRect.right + 6 }px`;
+  gestureOutput.style.top = `${videoRect.top}px`; // Align the top with video-container
+}
+
+// Call the function on load and on window resize
+window.addEventListener('load', positionGestureOutput);
+window.addEventListener('resize', positionGestureOutput);
 
 
-
-
-
-
+// Set up an interval for face detection (every 500ms)
 
