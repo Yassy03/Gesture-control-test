@@ -1,4 +1,4 @@
-# Gesture Control test 
+# Spotify Gesture and mood player
 
 ## Run these commands in the terminal to use the code: 
 
